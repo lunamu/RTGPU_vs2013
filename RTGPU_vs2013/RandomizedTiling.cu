@@ -87,8 +87,12 @@ int main(int argc, char* argv[])
 	gpu_uniform_grid.gpu_eliminate_conflict_points(2 * radius);
 
 
-	viewGPUPoint2D(gpu_uniform_grid.dev_compacted_php, gpu_uniform_grid.compacted_php_num, "gpua");
 
+
+	
+	gpu_uniform_grid.gpu_insert_in_gap(2 * radius);
+
+	viewGPUPoint2D(gpu_uniform_grid.dev_compacted_php, gpu_uniform_grid.compacted_php_num, "gpua");
 	//Next: Find all gaps, fill a gap_point grid,
 
 	//diff = clock() - start;

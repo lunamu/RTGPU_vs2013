@@ -14,6 +14,7 @@
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "device_atomic_functions.h"
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
@@ -220,9 +221,9 @@ inline Point2D BoxUniform(BBox bbox)
 	return p;
 }
 
-
 //
-//inline bool Circumcenter(const Point2D& p0, const Point2D& p1, const Point2D& p2, Point2D& center, double& rad2)
+//
+//bool Circumcenter(const Point2D& p0, const Point2D& p1, const Point2D& p2, Point2D& center, double& rad2)
 //{
 //	double dA, dB, dC, aux1, aux2, div;
 //
@@ -244,6 +245,7 @@ inline Point2D BoxUniform(BBox bbox)
 //
 //	return true;
 //}
+
 
 //global variables
 

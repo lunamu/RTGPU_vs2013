@@ -27,6 +27,12 @@ public:
 	//void gpu_gen_gap_points();
 	//void gpu_eliminate_gap_points();
 
+	//Input a point struct array, make it a grid. Also replace the grid in this class
+	//this is not suitable for this class. But as a way to simplify the whole process.
+	//everytime it get dev_compacted_points, sort it by hash value, generate new dev_idx array.
+	void gpu_gridize();
+
+
 	//Naming: don't name your parameters like functions. Important. Corret later.
 	Point2D* dev_points;
 	Point2D* dev_gap_points;
@@ -62,6 +68,13 @@ public:
 	//Those points that actually generated the gap
 	PointStruct* dev_gap_origin_php;
 	int gap_origin_php_num;
+
+
+	PointStruct* dev_gap_php;
+	int* dev_gap_php_per_primary_num;
+
+	//only store the number, as a test.
+	int* dev_gap_php_num;
 
 	//Some test cases
 	int* dev_information_buffer;
