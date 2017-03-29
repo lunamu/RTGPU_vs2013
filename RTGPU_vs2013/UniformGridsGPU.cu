@@ -1,11 +1,13 @@
 #include "UniformGridsGPU.cuh"
 
 
-__device__ inline unsigned int SpatialToHash(Point2D point, BBox gridBbox, int height, int width) 
-{ return (unsigned int)(((int)((point.y - gridBbox.ymin)*height)) * width + (point.x - gridBbox.xmin) * width); }
-
 __constant__ double EPS = 0.000001;
 
+
+__device__ inline unsigned int SpatialToHash(Point2D point, BBox gridBbox, int height, int width)//potential bug 
+{
+	return (unsigned int)(((int)((point.y - EPS - gridBbox.ymin)*height)) * width + (point.x - gridBbox.xmin) * width);
+}
 
 __global__ void global_and(bool* A, bool* B, int num)
 {
@@ -14,6 +16,16 @@ __global__ void global_and(bool* A, bool* B, int num)
 	if (idx < num)
 	{
 		A[idx] = A[idx] && B[idx];
+	}
+}
+
+__global__ void global_and(int* A, bool* B, int num)
+{
+
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idx < num)
+	{
+		A[idx] = (bool)(A[idx]) && B[idx];
 	}
 }
 
@@ -146,7 +158,7 @@ __device__ void eliminate_conflict(int query_idx, float range, int* cp_index_buf
 	int height,
 	int* dev_priority,
 	bool* dev_valid,
-	int* dev_information_buffer)//conflict points index buffer.
+	float* dev_information_buffer)//conflict points index buffer.
 {
 
 
@@ -219,7 +231,7 @@ __global__ void cuda_eliminate_conflict(float range, int size,
 	int height,
 	int* dev_priority,
 	bool* dev_valid,
-	int* dev_information_buffer)
+	float* dev_information_buffer)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if (idx < size)
@@ -231,7 +243,7 @@ __global__ void cuda_eliminate_conflict(float range, int size,
 	}
 }
 
-__device__ void eliminate_conflict_php(int query_idx, float range, int* cp_index_buffer,
+__device__ void eliminate_conflict_php(int query_idx, float range,
 	BBox gridBbox,
 	PointStruct* dev_php,
 	int *dev_idx,
@@ -239,7 +251,7 @@ __device__ void eliminate_conflict_php(int query_idx, float range, int* cp_index
 	bool* dev_valid,
 	int width,
 	int height,
-	int* dev_information_buffer,bool* dev_primary)//conflict points index buffer.
+	float* dev_information_buffer,bool* dev_primary)//conflict points index buffer.
 {
 
 	dev_primary[query_idx] = false;
@@ -273,7 +285,7 @@ __device__ void eliminate_conflict_php(int query_idx, float range, int* cp_index
 					{
 						if (dev_php[grid_index + in_grid_idx].priority > current_priority)
 						{
-							eliminate_conflict_php(grid_index + in_grid_idx, range, cp_index_buffer, gridBbox, dev_php, dev_idx, point_num, dev_valid, width, height, dev_information_buffer, dev_primary);
+							eliminate_conflict_php(grid_index + in_grid_idx, range, gridBbox, dev_php, dev_idx, point_num, dev_valid, width, height, dev_information_buffer, dev_primary);
 							return;
 						}
 						else if (grid_index + in_grid_idx != query_idx)
@@ -312,16 +324,16 @@ __global__ void cuda_eliminate_conflict_php(float range, int size,
 	bool* dev_valid,
 	int width,
 	int height,
-	int* dev_information_buffer, bool* dev_primary)
+	float* dev_information_buffer, bool* dev_primary)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if (idx < size)
 	{
 		//per thread storage
 		dev_information_buffer[idx] = 0;
-		int cp_index_buffer[MAX_LOCAL_NUM];
+	
 		
-		eliminate_conflict_php(idx, range, cp_index_buffer, gridBbox, dev_php,dev_idx, point_num, dev_valid,width, height, dev_information_buffer, dev_primary);
+		eliminate_conflict_php(idx, range, gridBbox, dev_php,dev_idx, point_num, dev_valid,width, height, dev_information_buffer, dev_primary);
 	}
 }
 
@@ -430,6 +442,67 @@ __global__ void cuda_insert_in_gap(float range, int size, BBox gridBbox,
 	}
 }
 
+__global__ void cuda_test_conflict(float range,
+	BBox gridBbox,
+	PointStruct* dev_php,
+	int *dev_idx,
+	int point_num,
+	bool* dev_valid,
+	int width,
+	int height,
+	float* dev_information_buffer)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idx < point_num)
+	{
+		if (!dev_valid[idx])
+		{
+			dev_information_buffer[idx] = 1000;
+			return;
+		}
+		Point2D current_point = dev_php[idx].p;
+		float dist = 500000.0;
+		unsigned int x_start = max(0.0, (current_point.x - range - gridBbox.xmin)) * width;
+		unsigned int x_end = min(gridBbox.xmax - EPS - gridBbox.xmin, (current_point.x + range - gridBbox.xmin)) * width;
+		unsigned int y_start = max(0.0, (current_point.y - range - gridBbox.ymin)) * height;
+		unsigned int y_end = min(gridBbox.ymax - EPS - gridBbox.ymin, (current_point.y + range - gridBbox.ymin)) * height;
+		for (int i = x_start; i <= x_end; i++)
+		{
+			for (int j = y_start; j <= y_end; j++)
+			{
+				unsigned int idx = j * width + i;
+				if (dev_idx[idx] == -1)
+				{
+					continue;
+				}
+				else
+				{
+					int grid_index = dev_idx[idx];
+					int grid_hash = dev_php[grid_index].hash;
+					int in_grid_idx = 0;
+					while ((grid_index + in_grid_idx < point_num) && (dev_php[grid_index + in_grid_idx].hash == grid_hash)) {
+						if (dev_php[grid_index + in_grid_idx].valid == false){
+							in_grid_idx++;
+							continue;
+						}
+						double distSquare = devDistanceSquared(current_point, dev_php[grid_index + in_grid_idx].p);
+						if (distSquare == 0.0){
+							in_grid_idx++;
+							continue;
+						}						
+						float sq = sqrtf(distSquare);
+						if (sq < dist)dist = sq;					
+						in_grid_idx++;
+					}
+
+				}
+			}
+		}
+		dev_information_buffer[idx] = dist;
+		
+	}
+}
+
 UniformGridsGPU::UniformGridsGPU(vector<Point2D>& host_points, vector<int>& host_priority, int dim_)
 {
 	//Set some class parameters
@@ -454,7 +527,7 @@ UniformGridsGPU::UniformGridsGPU(vector<Point2D>& host_points, vector<int>& host
 	gpuErrchk(cudaMalloc((void**)&dev_compacted_points, sizeof(Point2D) * point_num));
 	gpuErrchk(cudaMalloc((void**)&dev_compacted_php, sizeof(PointStruct) * point_num));
 	gpuErrchk(cudaMalloc((void**)&dev_gap_origin_php, sizeof(PointStruct) * point_num));
-	gpuErrchk(cudaMalloc((void**)&dev_information_buffer, sizeof(int) * point_num));
+	gpuErrchk(cudaMalloc((void**)&dev_information_buffer, sizeof(float) * point_num));
 	gpuErrchk(cudaMalloc((void**)&dev_gap_points, sizeof(Point2D) * point_num * 10));
 
 
@@ -542,18 +615,27 @@ void UniformGridsGPU::gpu_eliminate_conflict_points(float range)
 	//Point2D* last = thrust::copy_if(thrust::device, dev_points, dev_points + point_num, dev_valid, dev_compacted_points, is_true());
 	//compacted_point_num = last - dev_compacted_points;
 	//viewGPUArray<bool>(dev_valid, point_num, "dev_valid");
+
 	PointStruct* last = thrust::copy_if(thrust::device, dev_php, dev_php + point_num, dev_valid, dev_compacted_php , is_true());
 	viewGPUPoint2D(dev_php, point_num, "php");
 	
 	compacted_php_num = last - dev_compacted_php;
 
-	global_and << <numBlocks, threadsPerBlock >> >(dev_primary, dev_valid, point_num);
-	last = thrust::copy_if(thrust::device, dev_php, dev_php + point_num, dev_primary, dev_gap_origin_php, is_true());
+	cuda_test_conflict << <numBlocks, threadsPerBlock >> >(range, gridBbox, dev_php, dev_idx, point_num, dev_valid, width, height, dev_information_buffer);
+	
+	viewGPUArray<float>(dev_information_buffer, point_num, "dev_information_buffer");
+
+
+	//global_and << <numBlocks, threadsPerBlock >> >(dev_primary, dev_valid, point_num);
+	//global_and << <numBlocks, threadsPerBlock >> >(dev_information_buffer, dev_valid, point_num);
+	
+	last = thrust::copy_if(thrust::device, dev_php, dev_php + point_num, dev_information_buffer, dev_gap_origin_php, is_true());
 	gap_origin_php_num = last - dev_gap_origin_php;
-	viewGPUArray<int>(dev_information_buffer, point_num, "dev_information_buffer");
-	viewGPUPoint2D(dev_gap_origin_php, gap_origin_php_num, "dev_gap_origin");
+	
+	//viewGPUPoint2D(dev_gap_origin_php, gap_origin_php_num, "dev_gap_origin");
+	viewGPUPoint2D(dev_gap_origin_php, gap_origin_php_num, "dev_conflict_point");
 
-
+	
 	gpuErrchk(cudaMalloc((void**)&dev_gap_php_num, sizeof(int)*gap_origin_php_num));
 }
 

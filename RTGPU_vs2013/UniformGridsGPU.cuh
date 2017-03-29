@@ -77,8 +77,11 @@ public:
 	int* dev_gap_php_num;
 
 	//Some test cases
-	int* dev_information_buffer;
+	float* dev_information_buffer;
 
+
+	//Test buf
+	//int* dev_
 
 	float rad;
 	BBox gridBbox;
